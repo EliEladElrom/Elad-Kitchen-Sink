@@ -1,0 +1,336 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:Canvas xmlns="http://ns.adobe.com/mxml/2009"
+		   xmlns:mx="library://ns.adobe.com/flex/mx"
+		   xmlns:flow="library://ns.adobe.com/flashx/textLayout"
+		   xmlns:textEditBar="com.adobe.textEditBar.*"
+		   xmlns:txui="com.adobe.flashx.textLayout.ui.*"
+		   xmlns:txrulers="com.adobe.flashx.textLayout.ui.rulers.*"
+		   xmlns:txinsp="com.adobe.flashx.textLayout.ui.inspectors.*"
+		   xmlns:textEditor="com.elrom.deo.view.components.textEditor.*"
+		   xmlns:s="library://ns.adobe.com/flex/spark"
+		   verticalScrollPolicy="off"
+		   horizontalScrollPolicy="off"
+		   creationComplete="handleCreationComplete()"
+		   resize="handleResize()">
+
+	<Script>
+		<![CDATA[
+			import com.adobe.flashx.textLayout.ui.inspectors.TextInspectorController;
+			import com.adobe.textEditBar.FileIOHelper;
+
+			import flashx.textLayout.container.ContainerController;
+			import flashx.textLayout.edit.EditManager;
+			import flashx.textLayout.edit.EditingMode;
+			import flashx.textLayout.edit.ElementRange;
+			import flashx.textLayout.edit.ISelectionManager;
+			import flashx.textLayout.edit.SelectionFormat;
+			import flashx.textLayout.edit.SelectionManager;
+			import flashx.textLayout.edit.SelectionState;
+			import flashx.textLayout.elements.Configuration;
+			import flashx.textLayout.elements.InlineGraphicElementStatus;
+			import flashx.textLayout.elements.ParagraphElement;
+			import flashx.textLayout.elements.SpanElement;
+			import flashx.textLayout.elements.TextFlow;
+			import flashx.textLayout.events.SelectionEvent;
+			import flashx.textLayout.events.StatusChangeEvent;
+			import flashx.textLayout.events.UpdateCompleteEvent;
+			import flashx.textLayout.formats.TextLayoutFormat;
+			import flashx.undo.IUndoManager;
+			import flashx.undo.UndoManager;
+
+			private var resizeOK:Boolean;
+
+			[Bindable]
+			public var activeFlow:TextFlow;
+
+			[Bindable]
+			public var textEditorTools:TextEditorTools = null;
+
+			// undo/redo manager
+			private var undoManager:IUndoManager;
+
+			public var setActiveFlowUpdateCallBack:Function = null;
+
+			private var bottomPanels:Array = [];
+
+
+			public function handleCreationComplete(): void
+			{
+				initializeConfiguration();
+				FileIOHelper.parentWindow = this;
+				FileIOHelper.changeContent = changeContent;
+
+				resizeOK = true;
+				handleResize();
+
+				undoManager = new UndoManager();
+
+				this.addEventListener(Event.ACTIVATE, onFocus);
+
+				changeContent(createEmptyFlow());
+				callLater(doFocus);
+				
+				if (textEditorTools != null)
+					textEditorTools.activeFlow = this.activeFlow;
+			}
+
+			public function doFocus():void
+			{
+				if (activeFlow)
+				{
+					var selMgr:ISelectionManager = activeFlow.interactionManager;
+					if (selMgr && textPanel.visible)
+						selMgr.setFocus();
+				}
+			}
+			private function createEmptyFlow():TextFlow
+			{
+				var newFlow:TextFlow = new TextFlow();
+				var para:ParagraphElement = new ParagraphElement();
+				para.addChild(new SpanElement());
+				newFlow.addChild(para);
+				return newFlow;
+			}
+
+			private function initializeConfiguration():void
+			{
+				var config:Configuration = TextFlow.defaultConfiguration;
+				config.unfocusedSelectionFormat = new SelectionFormat(0xffffff, 1.0, BlendMode.DIFFERENCE, 0xffffff, 1.0, BlendMode.DIFFERENCE, 0);
+				config.inactiveSelectionFormat = new SelectionFormat(0xffffff, 1.0, BlendMode.DIFFERENCE, 0xffffff, 1.0, BlendMode.DIFFERENCE, 0);
+				config.manageTabKey = true;
+				var initialFormat:TextLayoutFormat = new TextLayoutFormat();
+				initialFormat.fontFamily = "Arial";
+				initialFormat.fontSize = 16;
+				initialFormat.paddingLeft = 2;
+				initialFormat.paddingTop = 2;
+				initialFormat.paddingRight = 2;
+				initialFormat.paddingBottom = 2;
+				config.textFlowInitialFormat = initialFormat;
+			}
+
+			private function onFocus(event:Event):void
+			{
+				if (activeFlow)
+				{
+					var selMgr:ISelectionManager = activeFlow.interactionManager;
+					if(selMgr)
+						selMgr.setFocus();
+				}
+
+			}
+
+			private var editingMode:String = EditingMode.READ_WRITE;
+
+			private function keyListener(event:KeyboardEvent):void
+			{
+				if (event.keyCode == Keyboard.ESCAPE)
+					activeFlow.interactionManager.selectRange(-1,-1);
+			}
+
+			private function updateEscapeKeyListener():void
+			{
+				for (var i:int = 0; i < activeFlow.flowComposer.numControllers; i++)
+				{
+					var controller:ContainerController = activeFlow.flowComposer.getControllerAt(i);
+					var container:DisplayObject = controller.container as DisplayObject;
+					if (activeFlow.interactionManager)
+						container.addEventListener(KeyboardEvent.KEY_DOWN, keyListener,false,0,true);
+					else
+						container.removeEventListener(KeyboardEvent.KEY_DOWN, keyListener);
+				}
+			}
+
+			public function setActiveFlow(newActiveFlow:TextFlow):void
+			{
+				TextInspectorController.Instance().activeFlow = newActiveFlow;
+				for (var i:int = bottomPanels.length - 1; i >= 0; --i)
+					bottomPanels[i].activeFlow = newActiveFlow;
+			}
+
+			public function setInteractionManager(selectType:String):void
+			{
+				editingMode = selectType;
+				var uiActiveFlow:TextFlow = null;
+
+				if (activeFlow)
+				{
+					switch (selectType)
+					{
+						case EditingMode.READ_ONLY:
+							if (activeFlow.interactionManager)
+								activeFlow.interactionManager = null;
+							break;
+						case EditingMode.READ_WRITE:
+							// either direction should work.
+							new EditManager(undoManager).textFlow = activeFlow;
+							activeFlow.interactionManager = new EditManager(undoManager);
+
+							activeFlow.addEventListener(SelectionEvent.SELECTION_CHANGE,mySelectionChangeListener,false,0,true);
+							uiActiveFlow = activeFlow;
+							activeFlow.interactionManager.selectRange(0, 0);
+							break;
+						case EditingMode.READ_SELECT:
+							activeFlow.interactionManager = new SelectionManager();
+							activeFlow.addEventListener(SelectionEvent.SELECTION_CHANGE,mySelectionChangeListener,false,0,true);
+							break;
+					}
+					setActiveFlow(uiActiveFlow);
+					updateEscapeKeyListener();
+					updateForSelectedElementRange(new SelectionState( activeFlow, 0, 0));
+				}
+			}
+
+
+			private function mySelectionChangeListener(e:SelectionEvent):void
+			{
+				updateForSelectedElementRange(e ? e.selectionState : null);
+			}
+
+			/**
+			 * Update the GUI for a particular selection range.
+			 * @private
+			 * @param range may be null
+			 */
+			private function updateForSelectedElementRange(selectionState:SelectionState):void
+			{
+				var range:ElementRange = selectionState ? ElementRange.createElementRange(selectionState.textFlow, selectionState.absoluteStart, selectionState.absoluteEnd) : null;
+				var selMgr:ISelectionManager = activeFlow.interactionManager;
+
+				for (var i:int = bottomPanels.length - 1; i >= 0; --i)
+					bottomPanels[i].update(range);
+
+				if (selMgr && textPanel.visible)
+					selMgr.setFocus();
+			}
+
+			/** handleResize - resize the child containers
+			 * @param alwaysResize - do the recalucation no matter if the size didn't change
+			 */
+			public function handleResize():void
+			{
+				if (resizeOK && activeFlow)
+				{
+					// do something
+				}
+			}
+
+			public function detachActiveFlow(deleteTheComposer:Boolean):void
+			{
+				if (activeFlow && activeFlow.flowComposer != null)
+				{
+					// Detach the containers from the display list
+					for (var idx:int = 0; idx < activeFlow.flowComposer.numControllers; idx++)
+					{
+						var controller:ContainerController = activeFlow.flowComposer.getControllerAt(idx);
+						var oldContainer:DisplayObject = controller.container;
+						if (oldContainer && oldContainer.parent)
+						{
+							Canvas(oldContainer.parent).rawChildren.removeChild(oldContainer);
+						}
+					}
+					activeFlow.flowComposer.removeAllControllers();
+
+					// also shuts down inline graphics - need another API if we want to do this another way
+					if (deleteTheComposer)
+						activeFlow.flowComposer = null;
+				}
+			}
+
+			private function recomposeOnLoadComplete(e:StatusChangeEvent):void
+			{
+				if (e.status == InlineGraphicElementStatus.ERROR)
+					trace("IOERROR loading inlinegraphicelement",e.errorEvent.toString());
+				if (e.element.getTextFlow() == activeFlow && e.status == InlineGraphicElementStatus.SIZE_PENDING)
+					activeFlow.flowComposer.updateAllControllers();
+			}
+
+			public function changeContent(newFlow:TextFlow):void
+			{
+				// Remove old containers from the display list
+				if (undoManager != null)
+					undoManager.clearAll();
+				if (activeFlow)
+				{
+					detachActiveFlow(true);
+					activeFlow.removeEventListener(StatusChangeEvent.INLINE_GRAPHIC_STATUS_CHANGE,recomposeOnLoadComplete);
+				}
+
+				// set activeFlow (note: this variable is used in the mxml code below.)
+				activeFlow = newFlow;
+				if (!activeFlow)
+					return;
+
+				activeFlow.addEventListener(StatusChangeEvent.INLINE_GRAPHIC_STATUS_CHANGE,recomposeOnLoadComplete,false,0,true);
+
+				textPanel.changeContainerSetup(activeFlow);
+
+				activeFlow.interactionManager = new EditManager(undoManager);
+				activeFlow.addEventListener(SelectionEvent.SELECTION_CHANGE,mySelectionChangeListener,false,0,true);
+
+				activeFlow.addEventListener(UpdateCompleteEvent.UPDATE_COMPLETE, onTextChangeHandler);
+
+				setActiveFlow(activeFlow);
+				activeFlow.interactionManager.selectRange(0, 0);
+				updateEscapeKeyListener();
+				activeFlow.flowComposer.updateAllControllers();
+			}
+
+			private function onTextChangeHandler(event:UpdateCompleteEvent):void
+			{
+				var text:String = activeFlow.getText();
+				var rectangle:Rectangle = activeFlow.flowComposer.getControllerAt(0).getContentBounds();
+
+				var newWidth:Number = rectangle.right - rectangle.left;
+				var newHeight:Number = rectangle.bottom - rectangle.top;
+
+				textPanel.height = panelWithScrollBars.height = this.height = newHeight;
+
+				if (newWidth > 120)
+					textPanel.width = panelWithScrollBars.width = this.width = newWidth;
+
+				if ( setActiveFlowUpdateCallBack != null )
+					setActiveFlowUpdateCallBack(newWidth, newHeight);
+			}
+
+			public function startListeningToTextChange():void
+			{
+				activeFlow.addEventListener(UpdateCompleteEvent.UPDATE_COMPLETE, onTextChangeHandler);
+			}
+
+			public function stopListeningToTextChange():void
+			{
+				activeFlow.removeEventListener(UpdateCompleteEvent.UPDATE_COMPLETE, onTextChangeHandler);
+			}
+
+			public function changeActiveFlowSize(difference:Point):void
+			{
+				var newH:Number = this.height - difference.y;
+				var newW:Number = this.width - difference.x;
+
+				if (newH < 20)
+					newH = 20;
+
+				textPanel.height = panelWithScrollBars.height = this.height = newH;
+
+				activeFlow.flowComposer.getControllerAt(0).setCompositionSize( newW, newH );
+
+				if ( setActiveFlowUpdateCallBack != null )
+					setActiveFlowUpdateCallBack(newW, newH);
+			}
+		]]>
+	</Script>
+
+	<txui:PanelWithEdgeBars id="panelWithScrollBars"
+							width="100%"
+							height="100%"
+							edgeInset="18"
+							gap="1"
+							verticalScrollPolicy="off"
+							horizontalScrollPolicy="off"
+							mainPanel="{textPanel}">
+
+		<textEditBar:SingleContainerView id="textPanel"/>
+
+	</txui:PanelWithEdgeBars>
+
+</mx:Canvas>

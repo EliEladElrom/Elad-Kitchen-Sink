@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:Canvas xmlns="http://ns.adobe.com/mxml/2009"
+		   xmlns:mx="library://ns.adobe.com/flex/mx"
+		   xmlns:flow="library://ns.adobe.com/flashx/textLayout"
+		   xmlns:textEditBar="com.adobe.textEditBar.*"
+		   xmlns:txui="com.adobe.flashx.textLayout.ui.*"
+		   xmlns:txrulers="com.adobe.flashx.textLayout.ui.rulers.*"
+		   xmlns:txinsp="com.adobe.flashx.textLayout.ui.inspectors.*">
+
+	<Script>
+		<![CDATA[
+			import com.adobe.textEditBar.FileIOHelper;
+
+			import flashx.textLayout.elements.TextFlow;
+
+			[Bindable]
+			public var activeFlow:TextFlow;
+
+			/** visiblePanels is an array of the labels of the right-side property panels that are opened.
+			 * if you set it, the panels specified will be opened and all others will be closed.
+			 */
+			public function set visiblePanels(inPanelNames:Array):void
+			{
+				var panels:Array = inspectorBox.getChildren();
+				for each(var panel:DisplayObject in panels)
+				{
+					if (panel is MultiPanel)
+					{
+						var mp:MultiPanel = panel as MultiPanel;
+						mp.opened = (inPanelNames.indexOf(mp.label) != -1);
+					}
+				}
+			}
+
+			public function get visiblePanels():Array
+			{
+				var result:Array = [];
+				var panels:Array = inspectorBox.getChildren();
+				for each(var panel:DisplayObject in panels)
+				{
+					if (panel is MultiPanel)
+					{
+						var mp:MultiPanel = panel as MultiPanel;
+						if (mp.opened)
+							result.push(mp.label);
+					}
+				}
+				return result;
+			}
+
+		]]>
+	</Script>
+
+	<mx:VBox id="inspectorBox"
+			 verticalGap="1"
+			 y="55"
+			 width="100%"
+			 backgroundColor="#D9D9D9">
+		<txui:MultiPanel id="charPanel"
+						 styleName="multiPanel"
+						 label="CHARACTER"
+						 width="100%"
+						 opened="false">
+			<txinsp:CharacterPropertyEditor active="{charPanel.opened}"/>
+		</txui:MultiPanel>
+		<txui:MultiPanel id="parPanel"
+						 styleName="multiPanel"
+						 label="PARAGRAPH"
+						 width="100%"
+						 opened="false">
+			<txinsp:ParagraphPropertyEditor active="{parPanel.opened}"/>
+		</txui:MultiPanel>
+		<txui:MultiPanel id="tabPanel"
+						 styleName="multiPanel"
+						 label="TAB"
+						 width="100%"
+						 opened="false">
+			<txinsp:TabPropertyEditor id="tabPropEditor"/>
+		</txui:MultiPanel>
+		<txui:MultiPanel id="advancedPanel"
+						 styleName="multiPanel"
+						 label="ADVANCED CHARACTER"
+						 width="100%"
+						 opened="false">
+			<txinsp:AdvancedTextPropertyEditor active="{advancedPanel.opened}"/>
+		</txui:MultiPanel>
+		<txui:MultiPanel id="antialiasPanel"
+						 styleName="multiPanel"
+						 label="ANTIALIAS"
+						 width="100%"
+						 opened="false">
+			<txinsp:AntiAliasPropertyEditor active="{antialiasPanel.opened}"/>
+		</txui:MultiPanel>
+		<txui:MultiPanel id="containerPanel"
+						 styleName="multiPanel"
+						 label="CONTAINER"
+						 width="100%"
+						 opened="false">
+			<txinsp:TextContainerPropertyEditor active="{containerPanel.opened}"/>
+		</txui:MultiPanel>
+		<txui:MultiPanel id="flowPanel"
+						 styleName="multiPanel"
+						 label="FLOW"
+						 width="100%"
+						 opened="false">
+			<txinsp:TextFlowPropertyEditor active="{flowPanel.opened}"/>
+		</txui:MultiPanel>
+	</mx:VBox>
+
+	<mx:TabNavigator id="bottomTabs"
+					 x="0"
+					 y="0"
+					 width="270"
+					 creationPolicy="all"
+					 paddingLeft="8"
+					 backgroundColor="#D9D9D9"
+					 color="#202020">
+		<mx:Canvas label="SOURCE"
+				   width="100%"
+				   height="28">
+			<textEditBar:FileServices id="fileWidget"
+									  fileChoose="FileIOHelper.fileChoose(event.fileName)"
+									  textLayoutExport="FileIOHelper.textLayoutExport(activeFlow)"
+									  htmlExport="FileIOHelper.htmlExport(activeFlow)"
+									  includeInLayout="false"
+									  width="100%"/>
+		</mx:Canvas>
+		<mx:Canvas label="LINKS"
+				   width="100%"
+				   height="100%">
+			<textEditBar:LinkBar id="linkElementProps"
+								 creationPolicy="all"
+								 includeInLayout="false"/>
+		</mx:Canvas>
+		<mx:Canvas label="GRAPHICS"
+				   width="100%"
+				   height="100%">
+			<textEditBar:GraphicBar id="foreignElementProps"
+									creationPolicy="all"
+									includeInLayout="false"/>
+		</mx:Canvas>
+
+	</mx:TabNavigator>
+
+</mx:Canvas>
